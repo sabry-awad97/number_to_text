@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fmt;
 use std::io;
+use std::io::Write;
+use std::process;
 
 /// Error types for number conversion
 #[derive(Debug)]
@@ -240,28 +242,43 @@ mod converter {
 use converter::number_to_text;
 
 fn main() {
+    // Set up Ctrl+C handler
+    ctrlc::set_handler(move || {
+        println!("\nGoodbye! Thanks for using Number to Text Converter!");
+        process::exit(0);
+    })
+    .expect("Error setting Ctrl+C handler");
+
     println!("Number to Text Converter");
     println!("------------------------");
     println!("Enter a number to convert to text (press Ctrl+C to exit):");
 
     loop {
+        print!("> ");
+        io::stdout().flush().unwrap();
+
         let mut input = String::new();
         match io::stdin().read_line(&mut input) {
-            Ok(_) => match input.trim().parse::<i64>() {
-                Ok(value) => match number_to_text(value) {
-                    Ok(result) => println!("Result: {}", result),
-                    Err(e) => eprintln!("Conversion error: {}", e),
-                },
-                Err(_) => {
-                    eprintln!("Error: Please enter a valid integer number.");
+            Ok(_) => {
+                let input = input.trim();
+                if input.is_empty() {
                     continue;
                 }
-            },
-            Err(error) => {
-                eprintln!("Error reading input: {}", error);
-                break;
+
+                match input.parse::<i64>() {
+                    Ok(number) => match number_to_text(number) {
+                        Ok(text) => println!("Result: {}", text),
+                        Err(e) => eprintln!("Error: {}", e),
+                    },
+                    Err(_) => eprintln!("Error: Please enter a valid integer"),
+                }
+            }
+            Err(e) => {
+                eprintln!("Error reading input: {}", e);
+                process::exit(1);
             }
         }
+
         println!("\nEnter another number (press Ctrl+C to exit):");
     }
 }
