@@ -1,8 +1,38 @@
+use clap::Parser;
 use std::error::Error;
 use std::fmt;
 use std::io;
 use std::io::Write;
 use std::process;
+
+/// A command-line tool to convert numbers to their textual representation
+#[derive(Parser, Debug, Default)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// The number to convert
+    #[arg(short, long)]
+    number: Option<String>,
+
+    /// Enable interactive mode
+    #[arg(short, long)]
+    interactive: bool,
+
+    /// Convert to ordinal form (1st, 2nd, etc)
+    #[arg(short, long)]
+    ordinal: bool,
+
+    /// Format as currency
+    #[arg(short, long)]
+    currency: bool,
+
+    /// Convert to Roman numerals
+    #[arg(short, long)]
+    roman: bool,
+
+    /// Language for text output (en, es)
+    #[arg(short, long, default_value = "en")]
+    language: String,
+}
 
 /// Error types for number conversion
 #[derive(Debug)]
@@ -13,6 +43,10 @@ pub enum NumberConversionError {
     InvalidInput(String),
     /// Internal conversion error
     ConversionError(String),
+    /// Error parsing decimal number
+    DecimalError(String),
+    /// Unsupported language
+    UnsupportedLanguage(String),
 }
 
 impl fmt::Display for NumberConversionError {
@@ -26,6 +60,12 @@ impl fmt::Display for NumberConversionError {
             }
             NumberConversionError::ConversionError(msg) => {
                 write!(f, "Conversion error: {}", msg)
+            }
+            NumberConversionError::DecimalError(msg) => {
+                write!(f, "Decimal error: {}", msg)
+            }
+            NumberConversionError::UnsupportedLanguage(lang) => {
+                write!(f, "Unsupported language: {}", lang)
             }
         }
     }
@@ -46,6 +86,179 @@ const SCALE_UNITS: [(i64, &str); 6] = [
 /// Module containing core number conversion functionality
 mod converter {
     use super::*;
+
+    const ROMAN_NUMERALS: [(i64, &str); 13] = [
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ];
+
+    /// Convert a number to Roman numerals
+    pub fn to_roman(number: i64) -> Result<String, NumberConversionError> {
+        if number <= 0 {
+            return Err(NumberConversionError::InvalidInput(
+                "Roman numerals must be positive".to_string(),
+            ));
+        }
+        if number > 3999 {
+            return Err(NumberConversionError::InvalidInput(
+                "Roman numerals cannot exceed 3999".to_string(),
+            ));
+        }
+
+        let mut result = String::new();
+        let mut remaining = number;
+
+        for &(value, numeral) in ROMAN_NUMERALS.iter() {
+            while remaining >= value {
+                result.push_str(numeral);
+                remaining -= value;
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Language-specific number words
+    struct LanguageWords {
+        units: &'static [&'static str],
+        teens: &'static [&'static str],
+        tens: &'static [&'static str],
+        scales: &'static [(&'static str, &'static str)],
+        zero: &'static str,
+        minus: &'static str,
+        point: &'static str,
+        and: &'static str,
+    }
+
+    const EN_WORDS: LanguageWords = LanguageWords {
+        units: &[
+            "",
+            "One",
+            "Two",
+            "Three",
+            "Four",
+            "Five",
+            "Six",
+            "Seven",
+            "Eight",
+            "Nine",
+            "Ten",
+            "Eleven",
+            "Twelve",
+            "Thirteen",
+            "Fourteen",
+            "Fifteen",
+            "Sixteen",
+            "Seventeen",
+            "Eighteen",
+            "Nineteen",
+        ],
+        teens: &[
+            "",
+            "Eleven",
+            "Twelve",
+            "Thirteen",
+            "Fourteen",
+            "Fifteen",
+            "Sixteen",
+            "Seventeen",
+            "Eighteen",
+            "Nineteen",
+        ],
+        tens: &[
+            "", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety",
+        ],
+        scales: &[
+            ("Trillion", "Trillions"),
+            ("Billion", "Billions"),
+            ("Million", "Millions"),
+            ("Thousand", "Thousands"),
+            ("Hundred", "Hundreds"),
+        ],
+        zero: "Zero",
+        minus: "Minus",
+        point: "point",
+        and: "and",
+    };
+
+    const ES_WORDS: LanguageWords = LanguageWords {
+        units: &[
+            "",
+            "Uno",
+            "Dos",
+            "Tres",
+            "Cuatro",
+            "Cinco",
+            "Seis",
+            "Siete",
+            "Ocho",
+            "Nueve",
+            "Diez",
+            "Once",
+            "Doce",
+            "Trece",
+            "Catorce",
+            "Quince",
+            "Dieciséis",
+            "Diecisiete",
+            "Dieciocho",
+            "Diecinueve",
+        ],
+        teens: &[
+            "",
+            "Once",
+            "Doce",
+            "Trece",
+            "Catorce",
+            "Quince",
+            "Dieciséis",
+            "Diecisiete",
+            "Dieciocho",
+            "Diecinueve",
+        ],
+        tens: &[
+            "",
+            "",
+            "Veinte",
+            "Treinta",
+            "Cuarenta",
+            "Cincuenta",
+            "Sesenta",
+            "Setenta",
+            "Ochenta",
+            "Noventa",
+        ],
+        scales: &[
+            ("Billón", "Billones"),
+            ("Mil Millones", "Mil Millones"),
+            ("Millón", "Millones"),
+            ("Mil", "Mil"),
+            ("Cien", "Cientos"),
+        ],
+        zero: "Cero",
+        minus: "Menos",
+        point: "coma",
+        and: "y",
+    };
+
+    fn get_language_words(lang: &str) -> Result<&'static LanguageWords, NumberConversionError> {
+        match lang {
+            "en" => Ok(&EN_WORDS),
+            "es" => Ok(&ES_WORDS),
+            _ => Err(NumberConversionError::UnsupportedLanguage(lang.to_string())),
+        }
+    }
 
     /// Converts a number to its textual representation in English.
     ///
@@ -237,49 +450,267 @@ mod converter {
             _ => unreachable!("ordinalize called with number > 19"),
         }
     }
+
+    /// Converts a decimal number to its textual representation
+    pub fn decimal_to_text(number: f64) -> Result<String, NumberConversionError> {
+        let integer_part = number.trunc() as i64;
+        let decimal_part = ((number.fract() * 100.0).abs().round()) as i64;
+
+        let mut result = number_to_text(integer_part)?;
+
+        if decimal_part > 0 {
+            result.push_str(" point ");
+            result.push_str(&number_to_text(decimal_part)?);
+        }
+
+        Ok(result)
+    }
+
+    /// Converts a number to its ordinal form (1st, 2nd, 3rd, etc)
+    pub fn to_ordinal(number: i64) -> Result<String, NumberConversionError> {
+        let suffix = match (number % 10, number % 100) {
+            (1, 11) | (2, 12) | (3, 13) => "th",
+            (1, _) => "st",
+            (2, _) => "nd",
+            (3, _) => "rd",
+            _ => "th",
+        };
+
+        let words = number_to_text(number)?;
+        Ok(format!("{} ({}{})", words, number, suffix))
+    }
+
+    /// Formats a number as currency
+    pub fn to_currency(number: f64) -> Result<String, NumberConversionError> {
+        if !number.is_finite() {
+            return Err(NumberConversionError::InvalidInput(
+                "Currency must be a finite number".to_string(),
+            ));
+        }
+
+        // Round to 2 decimal places
+        let rounded = (number * 100.0).round() / 100.0;
+        let integer_part = rounded.trunc() as i64;
+        let cents = ((rounded.fract() * 100.0).abs().round()) as i64;
+
+        let mut result = number_to_text(integer_part)?;
+        result.push_str(" Dollar");
+        if integer_part.abs() != 1 {
+            result.push('s');
+        }
+
+        if cents > 0 {
+            result.push_str(" and ");
+            result.push_str(&number_to_text(cents)?);
+            result.push_str(" Cent");
+            if cents != 1 {
+                result.push('s');
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Converts a number to its textual representation in the specified language
+    pub fn number_to_text_lang(number: i64, lang: &str) -> Result<String, NumberConversionError> {
+        let words = get_language_words(lang)?;
+
+        if number == 0 {
+            return Ok(words.zero.to_string());
+        }
+
+        let mut result = Vec::new();
+
+        if number < 0 {
+            result.push(words.minus.to_string());
+        }
+
+        result.extend(convert_with_lang(number.abs(), words)?);
+        Ok(result.join(" "))
+    }
+
+    /// Convert a number using language-specific words
+    fn convert_with_lang(
+        number: i64,
+        words: &LanguageWords,
+    ) -> Result<Vec<String>, NumberConversionError> {
+        if number >= i64::MAX / 2 {
+            return Err(NumberConversionError::ValueTooLarge(number));
+        }
+
+        let mut result = Vec::new();
+        let mut remaining = number;
+
+        // Handle thousands
+        if remaining >= 1000 {
+            let thousands = remaining / 1000;
+            remaining %= 1000;
+            if thousands > 1 {
+                result.extend(convert_with_lang(thousands, words)?);
+            }
+            result.push(words.scales[3].0.to_string());
+        }
+
+        // Handle hundreds
+        if remaining >= 100 {
+            let hundreds = remaining / 100;
+            remaining %= 100;
+            if hundreds == 1 {
+                if remaining == 0 {
+                    result.push(words.scales[4].0.to_string());
+                } else {
+                    result.push("Ciento".to_string());
+                }
+            } else {
+                let hundred_word =
+                    format!("{}cientos", words.units[hundreds as usize].to_lowercase());
+                result.push(
+                    hundred_word
+                        .chars()
+                        .next()
+                        .unwrap()
+                        .to_uppercase()
+                        .collect::<String>()
+                        + &hundred_word[1..],
+                );
+            }
+        }
+
+        // Handle tens and units
+        if remaining > 0 {
+            if !result.is_empty() && !words.and.is_empty() {
+                result.push(words.and.to_string());
+            }
+
+            if remaining < 20 {
+                result.push(words.units[remaining as usize].to_string());
+            } else {
+                let tens_digit = remaining / 10;
+                let units_digit = remaining % 10;
+
+                result.push(words.tens[tens_digit as usize].to_string());
+                if units_digit > 0 {
+                    if !words.and.is_empty() {
+                        result.push(words.and.to_string());
+                    }
+                    result.push(words.units[units_digit as usize].to_string());
+                }
+            }
+        }
+
+        Ok(result)
+    }
 }
 
-use converter::number_to_text;
+use converter::{
+    decimal_to_text, number_to_text, number_to_text_lang, to_currency, to_ordinal, to_roman,
+};
 
 fn main() {
-    // Set up Ctrl+C handler
-    ctrlc::set_handler(move || {
-        println!("\nGoodbye! Thanks for using Number to Text Converter!");
-        process::exit(0);
-    })
-    .expect("Error setting Ctrl+C handler");
+    let args = Args::parse();
 
+    if let Some(ref number_str) = args.number {
+        // Direct conversion mode
+        match process_input(number_str, &args) {
+            Ok(text) => println!("{}", text),
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                process::exit(1);
+            }
+        }
+    } else if args.interactive {
+        // Interactive mode
+        run_interactive_mode();
+    } else {
+        // No arguments provided, show help
+        println!(
+            "Please provide a number using --number or use --interactive for interactive mode"
+        );
+        println!("Use --help for more information");
+    }
+}
+
+fn process_input(input: &str, args: &Args) -> Result<String, NumberConversionError> {
+    // Try parsing as integer first
+    if let Ok(number) = input.parse::<i64>() {
+        if args.roman {
+            return to_roman(number);
+        }
+        if args.ordinal {
+            return to_ordinal(number);
+        }
+        if args.language != "en" {
+            return number_to_text_lang(number, &args.language);
+        }
+        return number_to_text(number);
+    }
+
+    // Try parsing as decimal
+    if let Ok(number) = input.parse::<f64>() {
+        if args.currency {
+            return to_currency(number);
+        }
+        return decimal_to_text(number);
+    }
+
+    Err(NumberConversionError::InvalidInput(
+        "Invalid number format. Examples of valid formats:\n\
+         - Integer: 42\n\
+         - Decimal: 42.42\n\
+         - Currency: 42.00\n\
+         - Negative: -42"
+            .to_string(),
+    ))
+}
+
+fn run_interactive_mode() {
     println!("Number to Text Converter");
-    println!("------------------------");
-    println!("Enter a number to convert to text (press Ctrl+C to exit):");
+    println!("Commands:");
+    println!("  <number>     - Convert a number to text");
+    println!("  o <number>   - Convert to ordinal form");
+    println!("  c <number>   - Format as currency");
+    println!("  r <number>   - Convert to Roman numerals");
+    println!("  quit         - Exit the program");
+    println!();
 
     loop {
         print!("> ");
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(_) => {
-                let input = input.trim();
-                if input.is_empty() {
-                    continue;
-                }
+        io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read line");
 
-                match input.parse::<i64>() {
-                    Ok(number) => match number_to_text(number) {
-                        Ok(text) => println!("Result: {}", text),
-                        Err(e) => eprintln!("Error: {}", e),
-                    },
-                    Err(_) => eprintln!("Error: Please enter a valid integer"),
-                }
-            }
-            Err(e) => {
-                eprintln!("Error reading input: {}", e);
-                process::exit(1);
-            }
+        let input = input.trim();
+
+        if input.eq_ignore_ascii_case("quit") {
+            break;
         }
 
-        println!("\nEnter another number (press Ctrl+C to exit):");
+        let (command, number) = if let Some(rest) = input.strip_prefix('o') {
+            ("ordinal", rest.trim())
+        } else if let Some(rest) = input.strip_prefix('c') {
+            ("currency", rest.trim())
+        } else if let Some(rest) = input.strip_prefix('r') {
+            ("roman", rest.trim())
+        } else {
+            ("text", input)
+        };
+
+        let args = Args {
+            number: Some(number.to_string()),
+            interactive: true,
+            ordinal: command == "ordinal",
+            currency: command == "currency",
+            roman: command == "roman",
+            language: "en".to_string(),
+        };
+
+        match process_input(number, &args) {
+            Ok(text) => println!("{}", text),
+            Err(e) => eprintln!("Error: {}", e),
+        }
     }
 }
 
@@ -348,5 +779,88 @@ mod tests {
 
         // Test conversion error handling
         assert!(number_to_text(999_999_999_999_999_999).is_ok());
+    }
+
+    #[test]
+    fn test_decimal_numbers() {
+        assert_eq!(decimal_to_text(42.42).unwrap(), "Forty Two point Forty Two");
+        assert_eq!(decimal_to_text(100.05).unwrap(), "One Hundred point Five");
+        assert_eq!(decimal_to_text(-1.50).unwrap(), "Minus One point Fifty");
+        assert_eq!(decimal_to_text(0.99).unwrap(), "Zero point Ninety Nine");
+    }
+
+    #[test]
+    fn test_process_input() {
+        let default_args = Args {
+            number: None,
+            interactive: false,
+            ordinal: false,
+            currency: false,
+            roman: false,
+            language: "en".to_string(),
+        };
+
+        assert_eq!(process_input("42", &default_args).unwrap(), "Forty Two");
+        assert_eq!(
+            process_input("42.42", &default_args).unwrap(),
+            "Forty Two point Forty Two"
+        );
+        assert!(process_input("invalid", &default_args).is_err());
+    }
+
+    #[test]
+    fn test_ordinal_numbers() {
+        assert_eq!(to_ordinal(1).unwrap(), "One (1st)");
+        assert_eq!(to_ordinal(2).unwrap(), "Two (2nd)");
+        assert_eq!(to_ordinal(3).unwrap(), "Three (3rd)");
+        assert_eq!(to_ordinal(4).unwrap(), "Four (4th)");
+        assert_eq!(to_ordinal(11).unwrap(), "Eleven (11th)");
+        assert_eq!(to_ordinal(21).unwrap(), "Twenty One (21st)");
+    }
+
+    #[test]
+    fn test_currency() {
+        assert_eq!(to_currency(1.0).unwrap(), "One Dollar");
+        assert_eq!(to_currency(1.01).unwrap(), "One Dollar and One Cent");
+        assert_eq!(
+            to_currency(2.45).unwrap(),
+            "Two Dollars and Forty Five Cents"
+        );
+        assert_eq!(to_currency(100.00).unwrap(), "One Hundred Dollars");
+        assert_eq!(
+            to_currency(1.234).unwrap(),
+            "One Dollar and Twenty Three Cents"
+        );
+        assert_eq!(
+            to_currency(-1.50).unwrap(),
+            "Minus One Dollar and Fifty Cents"
+        );
+    }
+
+    #[test]
+    fn test_roman_numerals() {
+        assert_eq!(to_roman(1).unwrap(), "I");
+        assert_eq!(to_roman(4).unwrap(), "IV");
+        assert_eq!(to_roman(9).unwrap(), "IX");
+        assert_eq!(to_roman(49).unwrap(), "XLIX");
+        assert_eq!(to_roman(99).unwrap(), "XCIX");
+        assert_eq!(to_roman(499).unwrap(), "CDXCIX");
+        assert_eq!(to_roman(999).unwrap(), "CMXCIX");
+        assert_eq!(to_roman(3999).unwrap(), "MMMCMXCIX");
+        assert!(to_roman(0).is_err());
+        assert!(to_roman(-1).is_err());
+        assert!(to_roman(4000).is_err());
+    }
+
+    #[test]
+    fn test_spanish_numbers() {
+        assert_eq!(number_to_text_lang(0, "es").unwrap(), "Cero");
+        assert_eq!(number_to_text_lang(1, "es").unwrap(), "Uno");
+        assert_eq!(number_to_text_lang(21, "es").unwrap(), "Veinte y Uno");
+        assert_eq!(
+            number_to_text_lang(1234, "es").unwrap(),
+            "Mil Doscientos y Treinta y Cuatro"
+        );
+        assert!(number_to_text_lang(42, "fr").is_err());
     }
 }
