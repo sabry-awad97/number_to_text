@@ -29,7 +29,7 @@ struct Args {
     #[arg(short, long)]
     roman: bool,
 
-    /// Language for text output (en, es)
+    /// Language for text output (en, es, ar)
     #[arg(short, long, default_value = "en")]
     language: String,
 }
@@ -132,130 +132,192 @@ mod converter {
     /// Language-specific number words
     struct LanguageWords {
         units: &'static [&'static str],
-        teens: &'static [&'static str],
         tens: &'static [&'static str],
         scales: &'static [(&'static str, &'static str)],
         zero: &'static str,
         minus: &'static str,
-        point: &'static str,
         and: &'static str,
     }
 
+    /// English language number words
     const EN_WORDS: LanguageWords = LanguageWords {
         units: &[
-            "",
-            "One",
-            "Two",
-            "Three",
-            "Four",
-            "Five",
-            "Six",
-            "Seven",
-            "Eight",
-            "Nine",
-            "Ten",
-            "Eleven",
-            "Twelve",
-            "Thirteen",
-            "Fourteen",
-            "Fifteen",
-            "Sixteen",
-            "Seventeen",
-            "Eighteen",
-            "Nineteen",
-        ],
-        teens: &[
-            "",
-            "Eleven",
-            "Twelve",
-            "Thirteen",
-            "Fourteen",
-            "Fifteen",
-            "Sixteen",
-            "Seventeen",
-            "Eighteen",
-            "Nineteen",
+            "",          // 0
+            "One",       // 1
+            "Two",       // 2
+            "Three",     // 3
+            "Four",      // 4
+            "Five",      // 5
+            "Six",       // 6
+            "Seven",     // 7
+            "Eight",     // 8
+            "Nine",      // 9
+            "Ten",       // 10
+            "Eleven",    // 11
+            "Twelve",    // 12
+            "Thirteen",  // 13
+            "Fourteen",  // 14
+            "Fifteen",   // 15
+            "Sixteen",   // 16
+            "Seventeen", // 17
+            "Eighteen",  // 18
+            "Nineteen",  // 19
         ],
         tens: &[
-            "", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety",
+            "",        // 0
+            "",        // 10 (handled in units)
+            "Twenty",  // 20
+            "Thirty",  // 30
+            "Forty",   // 40
+            "Fifty",   // 50
+            "Sixty",   // 60
+            "Seventy", // 70
+            "Eighty",  // 80
+            "Ninety",  // 90
         ],
         scales: &[
-            ("Trillion", "Trillions"),
-            ("Billion", "Billions"),
-            ("Million", "Millions"),
-            ("Thousand", "Thousands"),
-            ("Hundred", "Hundreds"),
+            ("Billion", "Billion"),   // 10^9
+            ("Billion", "Billion"),   // 10^9
+            ("Million", "Million"),   // 10^6
+            ("Thousand", "Thousand"), // 10^3
+            ("Hundred", "Hundred"),   // 10^2
         ],
         zero: "Zero",
         minus: "Minus",
-        point: "point",
-        and: "and",
+        and: "",
     };
 
+    /// Spanish language number words
     const ES_WORDS: LanguageWords = LanguageWords {
         units: &[
-            "",
-            "Uno",
-            "Dos",
-            "Tres",
-            "Cuatro",
-            "Cinco",
-            "Seis",
-            "Siete",
-            "Ocho",
-            "Nueve",
-            "Diez",
-            "Once",
-            "Doce",
-            "Trece",
-            "Catorce",
-            "Quince",
-            "Dieciséis",
-            "Diecisiete",
-            "Dieciocho",
-            "Diecinueve",
-        ],
-        teens: &[
-            "",
-            "Once",
-            "Doce",
-            "Trece",
-            "Catorce",
-            "Quince",
-            "Dieciséis",
-            "Diecisiete",
-            "Dieciocho",
-            "Diecinueve",
+            "",           // 0
+            "Uno",        // 1
+            "Dos",        // 2
+            "Tres",       // 3
+            "Cuatro",     // 4
+            "Cinco",      // 5
+            "Seis",       // 6
+            "Siete",      // 7
+            "Ocho",       // 8
+            "Nueve",      // 9
+            "Diez",       // 10
+            "Once",       // 11
+            "Doce",       // 12
+            "Trece",      // 13
+            "Catorce",    // 14
+            "Quince",     // 15
+            "Dieciséis",  // 16
+            "Diecisiete", // 17
+            "Dieciocho",  // 18
+            "Diecinueve", // 19
         ],
         tens: &[
-            "",
-            "",
-            "Veinte",
-            "Treinta",
-            "Cuarenta",
-            "Cincuenta",
-            "Sesenta",
-            "Setenta",
-            "Ochenta",
-            "Noventa",
+            "",          // 0
+            "",          // 10 (handled in units)
+            "Veinte",    // 20
+            "Treinta",   // 30
+            "Cuarenta",  // 40
+            "Cincuenta", // 50
+            "Sesenta",   // 60
+            "Setenta",   // 70
+            "Ochenta",   // 80
+            "Noventa",   // 90
         ],
         scales: &[
-            ("Billón", "Billones"),
-            ("Mil Millones", "Mil Millones"),
-            ("Millón", "Millones"),
-            ("Mil", "Mil"),
-            ("Cien", "Cientos"),
+            ("Billón", "Billones"),           // 10^9
+            ("Mil Millones", "Mil Millones"), // 10^9 (alternative)
+            ("Millón", "Millones"),           // 10^6
+            ("Mil", "Mil"),                   // 10^3
+            ("Cien", "Cientos"),              // 10^2
         ],
         zero: "Cero",
         minus: "Menos",
-        point: "coma",
         and: "y",
     };
 
+    /// Arabic language number words (masculine form)
+    const AR_WORDS: LanguageWords = LanguageWords {
+        units: &[
+            "",           // 0
+            "واحد",       // 1
+            "اثنان",      // 2
+            "ثلاثة",      // 3
+            "أربعة",      // 4
+            "خمسة",       // 5
+            "ستة",        // 6
+            "سبعة",       // 7
+            "ثمانية",     // 8
+            "تسعة",       // 9
+            "عشرة",       // 10
+            "أحد عشر",    // 11
+            "اثنا عشر",   // 12
+            "ثلاثة عشر",  // 13
+            "أربعة عشر",  // 14
+            "خمسة عشر",   // 15
+            "ستة عشر",    // 16
+            "سبعة عشر",   // 17
+            "ثمانية عشر", // 18
+            "تسعة عشر",   // 19
+        ],
+        tens: &[
+            "",       // 0
+            "",       // 10 (handled in units)
+            "عشرون",  // 20
+            "ثلاثون", // 30
+            "أربعون", // 40
+            "خمسون",  // 50
+            "ستون",   // 60
+            "سبعون",  // 70
+            "ثمانون", // 80
+            "تسعون",  // 90
+        ],
+        scales: &[
+            ("مليار", "مليار"), // 10^9
+            ("مليار", "مليار"), // 10^9
+            ("مليون", "مليون"), // 10^6
+            ("ألف", "ألف"),     // 10^3
+            ("مائة", "مائة"),   // 10^2
+        ],
+        zero: "صفر",
+        minus: "سالب",
+        and: "و",
+    };
+
+    /// Supported languages for number conversion
+    #[derive(Debug, Default)]
+    enum Language {
+        #[default]
+        English,
+        Spanish,
+        Arabic,
+    }
+
+    impl From<&str> for Language {
+        fn from(lang: &str) -> Self {
+            match lang.to_lowercase().as_str() {
+                "es" | "esp" | "spanish" => Language::Spanish,
+                "ar" | "ara" | "arabic" => Language::Arabic,
+                _ => Language::English,
+            }
+        }
+    }
+
+    impl From<Language> for &str {
+        fn from(lang: Language) -> Self {
+            match lang {
+                Language::English => "en",
+                Language::Spanish => "es",
+                Language::Arabic => "ar",
+            }
+        }
+    }
+
+    /// Get the language-specific words based on the language code
     fn get_language_words(lang: &str) -> Result<&'static LanguageWords, NumberConversionError> {
-        match lang {
-            "en" => Ok(&EN_WORDS),
-            "es" => Ok(&ES_WORDS),
+        match lang.to_lowercase().as_str() {
+            "en" | "eng" | "english" => Ok(&EN_WORDS),
+            "es" | "esp" | "spanish" => Ok(&ES_WORDS),
+            "ar" | "ara" | "arabic" => Ok(&AR_WORDS),
             _ => Err(NumberConversionError::UnsupportedLanguage(lang.to_string())),
         }
     }
@@ -555,7 +617,21 @@ mod converter {
         if remaining >= 100 {
             let hundreds = remaining / 100;
             remaining %= 100;
-            if hundreds == 1 {
+
+            // Add conjunction for Arabic if needed
+            if !result.is_empty() && !words.and.is_empty() && words.zero == "صفر" {
+                result.push(words.and.to_string());
+            }
+
+            // Special handling for Arabic hundreds
+            if words.zero == "صفر" {
+                match hundreds {
+                    1 => result.push("مائة".to_string()),
+                    2 => result.push("مائتان".to_string()),
+                    3..=9 => result.push(format!("{} مائة", words.units[hundreds as usize])),
+                    _ => {}
+                }
+            } else if hundreds == 1 {
                 if remaining == 0 {
                     result.push(words.scales[4].0.to_string());
                 } else {
@@ -588,12 +664,23 @@ mod converter {
                 let tens_digit = remaining / 10;
                 let units_digit = remaining % 10;
 
-                result.push(words.tens[tens_digit as usize].to_string());
-                if units_digit > 0 {
-                    if !words.and.is_empty() {
-                        result.push(words.and.to_string());
+                // For Arabic, units come before tens
+                if words.zero == "صفر" {
+                    if units_digit > 0 {
+                        result.push(words.units[units_digit as usize].to_string());
+                        if !words.and.is_empty() {
+                            result.push(words.and.to_string());
+                        }
                     }
-                    result.push(words.units[units_digit as usize].to_string());
+                    result.push(words.tens[tens_digit as usize].to_string());
+                } else {
+                    result.push(words.tens[tens_digit as usize].to_string());
+                    if units_digit > 0 {
+                        if !words.and.is_empty() {
+                            result.push(words.and.to_string());
+                        }
+                        result.push(words.units[units_digit as usize].to_string());
+                    }
                 }
             }
         }
@@ -860,6 +947,19 @@ mod tests {
         assert_eq!(
             number_to_text_lang(1234, "es").unwrap(),
             "Mil Doscientos y Treinta y Cuatro"
+        );
+        assert!(number_to_text_lang(42, "fr").is_err());
+    }
+
+    #[test]
+    fn test_arabic_numbers() {
+        assert_eq!(number_to_text_lang(0, "ar").unwrap(), "صفر");
+        assert_eq!(number_to_text_lang(1, "ar").unwrap(), "واحد");
+        assert_eq!(number_to_text_lang(11, "ar").unwrap(), "أحد عشر");
+        assert_eq!(number_to_text_lang(21, "ar").unwrap(), "واحد و عشرون");
+        assert_eq!(
+            number_to_text_lang(1234, "ar").unwrap(),
+            "ألف و مائتان و أربعة و ثلاثون"
         );
         assert!(number_to_text_lang(42, "fr").is_err());
     }
